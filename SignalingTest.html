@@ -10,8 +10,13 @@
     var ws = new WebSocket("ws://localhost:8765");
     ws.onopen = function() {
         // Web Socket is connected, send data using send()
-        ws.send(JSON.stringify({peerId : crypto.randomUUID() , peerType : "WebBrowser"}));
+        uuid = crypto.randomUUID()
+        ws.send({eventType : 'READY', peerId : uuid , peerType : 'WebBrowser'});
         console.log("Message is sent...");
+        // ERROR
+        // ws.send(JSON.stringify({eventType : 'READY', peerId : uuid , peerType : 'WebBrowser'}));
+        // console.log("Message is sent... again");
+        // ws.send(JSON.stringify({eventType : 'READY', peerId : crypto.randomUUID() , peerType : 'WebBrowser'}));
     };
 				
     ws.onmessage = function (evt) { 
