@@ -1,18 +1,16 @@
 const ice = {'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]}
+// const ice = {'iceServers': []}
 const remoteVideo = document.querySelector('video#remote_video');
 const videoElement = document.querySelector('video#local_video');
 
 class SignalingChannel {
 
-    constructor(){
+    constructor(pc,offer){
         this.ws = new WebSocket("ws://localhost:8765");
         this.remote = []
-        this.local = null
+        this.local = pc
+        this.offer = offer
         this.init()
-    }
-
-    addLocal(localPeer){
-        this.local = localPeer
     }
 
     getConnection(){
@@ -56,18 +54,31 @@ class SignalingChannel {
                         }
                     }
                 }else if(JSON.parse(message.data).eventType  == 'PEER'){
-                    const remotePeer = new RTCPeerConnection(ice);
-                    this.remote.push(remotePeer)
-                    console.log("peer added...")
-                    //offer stream
-                    const offer = await this.local.createOffer();
-                    await this.local.setLocalDescription(offer);
-                    this.ws.send(JSON.stringify({eventType : 'OFFER', offer : offer, peerId : this.ws.peerId}));
+                    // candidate
                     this.local.addEventListener('icecandidate', event => {
                         if (event.candidate) {
                             this.ws.send(JSON.stringify({eventType : 'CANDIDATE', peerId : this.ws.peerId, iceCandidate : event.candidate}));
                         }
                     });
+                    // create remote connection
+                    const remotePeer = new RTCPeerConnection(ice);
+                    this.remote.push(remotePeer)
+                    console.log("peer added...")
+                    // remote listeners
+                    remotePeer.addEventListener('connectionstatechange', event => {
+                        console.log(event)
+                        if (remotePeer.connectionState === 'connected') {
+                            // Peers connected!
+                            console.log('connected !!')
+                        }else if(remotePeer.connectionState == 'have-remote-offer') {
+                            const answer = this.remote[0].createAnswer();
+                            this.remote[0].setLocalDescription(answer);
+                            this.ws.send(JSON.stringify({eventType : 'ANSWER', answer : answer, peerId : this.ws.peerId}));
+                        }
+                    });
+                    // send to signaling server
+                    this.ws.send(JSON.stringify({eventType : 'OFFER', offer : this.offer, peerId : this.ws.peerId}));
+                    
                 }else{
                     console.log("ERROR...")
                     console.log(JSON.parse(message.data))
@@ -84,15 +95,15 @@ var constraints = {
     video: true
 }
 
-// webrtc
-var signalingChannel = new SignalingChannel();
-
-
 async function playVideoFromCamera() {
     try { 
         var pc = new RTCPeerConnection(ice);
-        signalingChannel.addLocal(pc)
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        //offer stream
+        const offer = await pc.createOffer({iceRestart:true , offerToReceiveAudio: true, offerToReceiveVideo: true});
+        await pc.setLocalDescription(offer);
+        // webrtc
+        var signalingServer = new SignalingChannel(pc,offer);
         //local video
         videoElement.srcObject = stream;
         console.log("waiting for peer...")
@@ -100,11 +111,16 @@ async function playVideoFromCamera() {
             pc.addTrack(track, stream);
         })
         pc.addEventListener('connectionstatechange', event => {
-            if (peerConnection.connectionState === 'connected') {
+            console.log(event)
+            if (event.currentTarget.connectionState == 'connected') {
                 console.log("PEER CONNECTED !!!!!")
-                signalingChannel.peerConnected()
+                signalingServer.peerConnected()
+            }else if(event.currentTarget.connectionState == 'failed'){
+                console.log("Failed !!!")
             }
         });
+        
+        
     } catch(error) {
         console.error('Error opening video camera.', error);
     }
