@@ -6,7 +6,7 @@ const videoElement = document.querySelector('video#local_video');
 class SignalingChannel {
 
     constructor(pc,offer){
-        this.ws = new WebSocket("ws://localhost:8765");
+        this.ws = new WebSocket("ws://127.0.0.1:8765");
         this.remote = []
         this.local = pc
         this.offer = offer
@@ -15,13 +15,6 @@ class SignalingChannel {
 
     getConnection(){
         return this.ws
-    }
-
-    peerConnected(){
-        this.remotePeer[0].addEventListener('track', async (event) => {
-            const [remoteStream] = event.streams;
-            remoteVideo.srcObject = remoteStream;
-        });
     }
 
     init(){
@@ -48,7 +41,9 @@ class SignalingChannel {
                 }else if(JSON.parse(message.data).eventType  == 'CANDIDATE'){
                     if (JSON.parse(message.data).iceCandidate) {
                         try {
-                            await this.local.addIceCandidate(JSON.parse(message.data).iceCandidate);
+                            // change 127.0.0.1 -> ip and 0.0.0..0 to ip 
+                            // test
+                            await this.remote[0].addIceCandidate(new RTCIceCandidate(JSON.parse(message.data).iceCandidate));
                         } catch (e) {
                             console.error('Error adding received ice candidate', e);
                         }
@@ -60,6 +55,8 @@ class SignalingChannel {
                             this.ws.send(JSON.stringify({eventType : 'CANDIDATE', peerId : this.ws.peerId, iceCandidate : event.candidate}));
                         }
                     });
+                    // send to signaling server
+                    this.ws.send(JSON.stringify({eventType : 'OFFER', offer : this.offer, peerId : this.ws.peerId}));
                     // create remote connection
                     const remotePeer = new RTCPeerConnection(ice);
                     this.remote.push(remotePeer)
@@ -67,6 +64,7 @@ class SignalingChannel {
                     // remote listeners
                     remotePeer.addEventListener('connectionstatechange', event => {
                         console.log(event)
+                        console.log(remotePeer.connectionState)
                         if (remotePeer.connectionState === 'connected') {
                             // Peers connected!
                             console.log('connected !!')
@@ -76,8 +74,12 @@ class SignalingChannel {
                             this.ws.send(JSON.stringify({eventType : 'ANSWER', answer : answer, peerId : this.ws.peerId}));
                         }
                     });
-                    // send to signaling server
-                    this.ws.send(JSON.stringify({eventType : 'OFFER', offer : this.offer, peerId : this.ws.peerId}));
+                    remotePeer.addEventListener('track', async (event) => {
+                        const [remoteStream] = event.streams;
+                        remoteVideo.srcObject = remoteStream;
+                        console.log('remotestream added !!')
+                    });
+                    
                     
                 }else{
                     console.log("ERROR...")
@@ -103,7 +105,7 @@ async function playVideoFromCamera() {
         const offer = await pc.createOffer({iceRestart:true , offerToReceiveAudio: true, offerToReceiveVideo: true});
         await pc.setLocalDescription(offer);
         // webrtc
-        var signalingServer = new SignalingChannel(pc,offer);
+        new SignalingChannel(pc,offer);
         //local video
         videoElement.srcObject = stream;
         console.log("waiting for peer...")
@@ -112,9 +114,9 @@ async function playVideoFromCamera() {
         })
         pc.addEventListener('connectionstatechange', event => {
             console.log(event)
-            if (event.currentTarget.connectionState == 'connected') {
+            console.log(event.currentTarget.connectionState)
+            if (event.currentTarget.iceGatheringState == 'complete') {
                 console.log("PEER CONNECTED !!!!!")
-                signalingServer.peerConnected()
             }else if(event.currentTarget.connectionState == 'failed'){
                 console.log("Failed !!!")
             }
